@@ -1,0 +1,32 @@
+# Repository hygiene for the GitHub Pages site.
+#
+# Everything needed by the live page is tracked: index.html, leaf_model.onnx,
+# model_info.json, check_image.jpg, check_expected.json, README.md — plus the
+# submitted REPORT.md, REVIEW.md and screenshot.PNG. Nothing in this file
+# applies to already-tracked paths; it only keeps junk out of future commits.
+
+# macOS / Windows desktop junk
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+
+# Python scratch (the verification harness lives outside this folder)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editor / tooling
+.vscode/
+.idea/
+*.swp
+
+# Local run leftovers — the deployment itself needs no build output
+*.log
+*.tmp
+*.bak
+dist/
+node_modules/
