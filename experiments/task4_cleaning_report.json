@@ -1,0 +1,39 @@
+{
+ "historical_train_files_found": 700,
+ "historical_train_unique_hashes": 685,
+ "dropped_because_in_historical_val": [
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_012.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_047.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_057.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_161.jpg"
+ ],
+ "dropped_because_label_conflict": [
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/apple/apple_032.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/apple/apple_103.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/cherry/cherry_031.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/cherry/cherry_098.jpg"
+ ],
+ "dropped_because_exact_duplicate": [
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_036.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_040.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_045.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_055.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_068.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_104.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_106.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_110.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_113.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_126.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_162.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_166.jpg",
+  "/Users/karolinaklimentova/Desktop/c\u030ctvrt\u030ca\u0301k/zima/MLR/mlr_ex08/leaves/train/maple/maple_169.jpg"
+ ],
+ "kept": 679,
+ "kept_per_class": {
+  "apple": 173,
+  "cherry": 173,
+  "chestnut": 175,
+  "maple": 158
+ },
+ "historical_val_files": 120
+}
