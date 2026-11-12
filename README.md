@@ -1,6 +1,6 @@
 # MLR Exercise 8 — Leaf Classifier in the Browser
 
-Live in-browser leaf classification with a MobileNet-style ONNX model. The camera
+Live in-browser leaf classification with a MobileNetV3-Small ONNX model. The camera
 frames never leave the device: preprocessing and inference both happen in JavaScript
 with [ONNX Runtime Web](https://onnxruntime.ai/web/), loaded from a CDN.
 
@@ -9,6 +9,23 @@ with [ONNX Runtime Web](https://onnxruntime.ai/web/), loaded from a CDN.
 Open the live URL on a phone and tap **Start rear camera**, or open it on a desktop
 and upload a photo. A QR code for the same URL is printed at the bottom of the page
 (generated locally in SVG — no third-party QR service).
+
+## The model
+
+`leaf_model.onnx` is the best variant of a controlled comparison of ten training
+recipes: `mobilenet_v3_small` pretrained on ImageNet, fully fine-tuned for 40 epochs
+with geometric **and colour** augmentation, a cosine learning-rate schedule, and the
+previous years' photographs added to the training split. The interface did not change
+from the earlier model — same `1×3×96×96` input, same mean/std, same class order — so
+this page works with either checkpoint. Measured on three held-out validation sets:
+
+| validation set | previous model | this model |
+|---|---|---|
+| standard `val` split (62 images) | 82.3 % | **90.3 %** |
+| camera-like views (186) | 62.4 % | **83.3 %** |
+| previous years' photographs (120, out of distribution) | 60.0 % | **90.0 %** |
+
+Same architecture and file size (6.39 MB), so inference cost is unchanged.
 
 ## What it does
 
@@ -59,14 +76,17 @@ the resulting probabilities were compared with `check_expected.json`:
 
 | class | browser | expected | abs diff |
 |---|---|---|---|
-| apple | 0.158016 | 0.158016 | < 1e-3 |
-| cherry | 0.841981 | 0.841981 | < 1e-3 |
-| chestnut | 0.000000 | 0.000000 | < 1e-3 |
-| maple | 0.000003 | 0.000003 | < 1e-3 |
+| apple | 0.439218 | 0.439215 | 3.0e-06 |
+| cherry | 0.560630 | 0.560633 | 3.0e-06 |
+| chestnut | 0.000130 | 0.000130 | 7.0e-10 |
+| maple | 0.000022 | 0.000022 | 7.1e-11 |
 
-Agreement is far better than three decimal places. (A desktop ONNX Runtime reference
-run reproduces `check_expected.json` to ~2.5e-07, which bounds the remaining
-JPEG-decoder and resampler differences between the two environments.)
+Agreement is far better than three decimal places (worst absolute difference
+`3.0e-06`, execution provider `wasm`). The camera path is checked the same way: with
+Chrome driven by a synthetic video device, the exact `96 × 96` pixels the page fed to
+the model were read back out of the browser and re-scored by desktop ONNX Runtime —
+the two agree to `2.6e-06`, so the residual difference against `check_expected.json`
+on a live frame is the test video's 4:2:0 chroma subsampling, not the pipeline.
 
 ## Deployment
 
