@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14351f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Leaf Classifier — live in your browser</title>
+<style>
+  :root{
+    --bg:#0f1a13; --panel:#17271d; --panel2:#1e3325; --line:#2c4a35;
+    --fg:#eaf3ec; --dim:#9db8a6; --accent:#5fd08a; --accent2:#2f9e63; --warn:#f0b429;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:0 14px calc(28px + env(safe-area-inset-bottom));
+    max-width:760px; margin:0 auto;
+  }
+  h1{font-size:1.45rem;margin:18px 0 2px;letter-spacing:.2px}
+  h2{font-size:1.05rem;margin:0 0 10px;color:var(--dim);font-weight:600}
+  .sub{color:var(--dim);margin:0 0 16px;font-size:.9rem}
+  .stage{
+    position:relative; width:100%; aspect-ratio:1/1; max-height:56vh;
+    background:#000 center/contain no-repeat;
+    border:1px solid var(--line); border-radius:14px; overflow:hidden;
+  }
+  video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+  .stage .placeholder{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    text-align:center; padding:20px; color:var(--dim); font-size:.95rem; pointer-events:none;
+  }
+  /* the square the model actually looks at */
+  .cropbox{
+    position:absolute; border:2px dashed rgba(95,208,138,.85); border-radius:6px;
+    box-shadow:0 0 0 9999px rgba(0,0,0,.35); display:none; pointer-events:none;
+  }
+  .controls{display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 6px}
+  button,label.file{
+    appearance:none; border:0; border-radius:11px; padding:13px 16px;
+    font:inherit; font-weight:600; color:#06170d; background:var(--accent); cursor:pointer;
+    flex:1 1 auto; text-align:center; min-height:46px;
+  }
+  button.secondary,label.file.secondary{background:var(--panel2); color:var(--fg); border:1px solid var(--line)}
+  button:disabled{opacity:.4; cursor:default}
+  input[type=file]{position:absolute; width:1px; height:1px; opacity:0; overflow:hidden}
+  #status{
+    margin:10px 0 0; min-height:1.3em; font-size:.86rem; color:var(--dim);
+    word-break:break-word;
+  }
+  #status.err{color:#ffb3a7}
+  #status.ok{color:var(--accent)}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; margin-top:16px}
+  .top{
+    display:flex; align-items:baseline; gap:10px; margin-bottom:14px;
+    padding-bottom:12px; border-bottom:1px solid var(--line);
+  }
+  .top .name{font-size:1.7rem; font-weight:700; color:var(--accent)}
+  .top .pct{font-size:1.1rem; color:var(--dim); font-variant-numeric:tabular-nums}
+  .row{display:grid; grid-template-columns:5.2rem 1fr 6.4rem; gap:10px; align-items:center; margin:9px 0}
+  .row .cls{font-weight:600}
+  .bar{height:13px; background:var(--panel2); border-radius:7px; overflow:hidden}
+  .bar i{display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--accent2),var(--accent));
+         border-radius:7px; transition:width .12s linear}
+  .num{text-align:right; font-variant-numeric:tabular-nums; font-size:.85rem; color:var(--fg)}
+  .num small{display:block; color:var(--dim); font-size:.7rem}
+  .row.dim .cls,.row.dim .num{opacity:.55}
+  .note{font-size:.78rem;color:var(--dim);margin:12px 0 0}
+  .qrwrap{display:flex; gap:18px; align-items:center; flex-wrap:wrap}
+  #qrcode{background:#fff; padding:12px; border-radius:12px; line-height:0; flex:0 0 auto}
+  #qrcode svg{display:block; max-width:100%; height:auto}
+  .qrside{flex:1 1 200px; min-width:180px}
+  .qrside a{color:var(--accent); word-break:break-all; font-weight:600; text-decoration:underline}
+  .qrside p{margin:8px 0 0; font-size:.84rem; color:var(--dim)}
+  code{background:var(--panel2); padding:1px 5px; border-radius:5px; font-size:.85em}
+</style>
+</head>
+<body>
+
+<h1>🍁 Leaf Classifier</h1>
+<p class="sub">
+  Runs <strong>entirely on this device</strong> — the camera feed is never uploaded anywhere.
+  Inference happens in your browser with ONNX Runtime Web.
+</p>
+
+<div class="stage" id="stage">
+  <video id="video" playsinline muted autoplay></video>
+  <div class="cropbox" id="cropbox"></div>
+  <div class="placeholder" id="placeholder">Camera is off.<br>Tap <em>Start rear camera</em>, or upload a photo.</div>
+</div>
+
+<!-- hidden canvas used for central-crop + resize + pixel readback -->
+<canvas id="proc" width="96" height="96" style="display:none"></canvas>
+
+<div class="controls">
+  <button id="btnStart">Start rear camera</button>
+  <button id="btnStop" class="secondary" disabled>Stop camera</button>
+  <label class="file secondary" for="file">Upload photo<input id="file" type="file" accept="image/*"></label>
+</div>
+<p id="status">Loading model…</p>
+
+<div class="card">
+  <h2>Class probabilities</h2>
+  <div class="top"><span class="name" id="topName">—</span><span class="pct" id="topPct"></span></div>
+  <div id="results"></div>
+  <p class="note" id="meta"></p>
+</div>
+
+<div class="card">
+  <h2>Open this page on your phone</h2>
+  <div class="qrwrap">
+    <div id="qrcode" role="img" aria-label="QR code linking to https://karolinaklimentova.github.io/mlr-ex08/"></div>
+    <div class="qrside">
+      Point your phone's camera at the code, or open it directly:
+      <p><a id="pagesLink" href="https://karolinaklimentova.github.io/mlr-ex08/">https://karolinaklimentova.github.io/mlr-ex08/</a></p>
+      <p>The QR code above is generated locally by this page (SVG, no external QR service) and encodes exactly the URL shown next to it.</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/ort.min.js"></script>
+<script>
+"use strict";
+
+/* ══════════════════════════════════════════════════════════════════════
+   Leaf classifier — preprocessing is driven entirely by model_info.json
+   ══════════════════════════════════════════════════════════════════════ */
+
+const PAGES_URL = "https://karolinaklimentova.github.io/mlr-ex08/";
+const ORT_WASM_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/";
+
+const $ = id => document.getElementById(id);
+const video = $("video"), proc = $("proc"), stage = $("stage"), cropbox = $("cropbox");
+const pctx = proc.getContext("2d", { willReadFrequently: true });
+// keep the resize faithful to a plain bilinear resample
+pctx.imageSmoothingEnabled = true;
+pctx.imageSmoothingQuality = "high";
+
+let SPEC = null;      // model_info.json
+let session = null;   // ort.InferenceSession
+let stream = null;    // MediaStream
+let looping = false;
+let busy = false;
+let lastProbs = null;
+let frameCount = 0;
+
+function setStatus(msg, kind) {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = kind || "";
+}
+
+/* ── 1. Load the specification ─────────────────────────────────────── */
+async function loadSpec() {
+  const r = await fetch("model_info.json", { cache: "no-store" });
+  if (!r.ok) throw new Error("could not load model_info.json (" + r.status + ")");
+  const info = await r.json();
+  if (!Array.isArray(info.classes) || !info.classes.length) throw new Error("model_info.json: bad classes");
+  for (const k of ["input_size", "mean", "std"])
+    if (info[k] == null) throw new Error("model_info.json: missing " + k);
+  if (!Array.isArray(info.mean) || !Array.isArray(info.std) || info.mean.length !== 3 || info.std.length !== 3)
+    throw new Error("model_info.json: mean/std must be 3 numbers each");
+  return info;
+}
+
+/* ── 2. Build the ONNX session (local file, client-side only) ──────── */
+async function loadModel() {
+  if (typeof ort === "undefined") throw new Error("onnxruntime-web did not load from the CDN");
+  const r = await fetch("leaf_model.onnx", { cache: "force-cache" });
+  if (!r.ok) throw new Error("could not load leaf_model.onnx (" + r.status + ")");
+  const bytes = new Uint8Array(await r.arrayBuffer());
+
+  ort.env.wasm.wasmPaths = ORT_WASM_BASE;
+  ort.env.wasm.numThreads = 1;          // avoids SharedArrayBuffer requirements
+  ort.env.logSeverityLevel = 3;
+
+  // Try WebGPU where it exists, otherwise (e.g. iOS Safari) fall back to WASM.
+  const make = ep => ort.InferenceSession.create(bytes, {
+    logSeverityLevel: 3, graphOptimizationLevel: "all", executionProviders: [ep]
+  });
+  try {
+    session = await make("webgpu");
+    EP_USED = "webgpu";
+  } catch (e) {
+    session = await make("wasm");
+    EP_USED = "wasm";
+  }
+
+  const inName = session.inputNames[0], outName = session.outputNames[0];
+  console.log("ort session ready — provider:", EP_USED, "input:", inName, "output:", outName);
+  return { inName, outName };
+}
+
+/* ── 3. Preprocessing: central square → resize → [0,1] → normalise → NCHW
+   Exactly the pipeline described in model_info.json:
+     crop central square, resize to input_size, RGB/255, (x-mean)/std, 1x3xHxW
+   ──────────────────────────────────────────────────────────────────── */
+function tensorFromCanvas(size, mean, std) {
+  const img = pctx.getImageData(0, 0, size, size).data;   // RGBA, row-major
+  const plane = size * size;
+  const t = new Float32Array(3 * plane);                   // N=1, C=3, H, W (CHW order)
+  const m0 = mean[0], m1 = mean[1], m2 = mean[2];
+  const s0 = std[0],  s1 = std[1],  s2 = std[2];
+  for (let i = 0, p = 0; i < plane; i++, p += 4) {
+    t[i]           = (img[p]     / 255 - m0) / s0;         // R plane
+    t[plane + i]   = (img[p + 1] / 255 - m1) / s1;         // G plane
+    t[2 * plane + i] = (img[p + 2] / 255 - m2) / s2;       // B plane
+  }
+  return new ort.Tensor("float32", t, [1, 3, size, size]);
+}
+
+// Draw the CENTRAL SQUARE of srcW x srcS resized to size x size onto the proc canvas.
+function drawCentralSquare(src, srcW, srcH, size) {
+  const side = Math.min(srcW, srcH);
+  const sx = (srcW - side) / 2, sy = (srcH - side) / 2;
+  proc.width = size; proc.height = size;
+  pctx.imageSmoothingEnabled = true;
+  pctx.imageSmoothingQuality = "high";
+  pctx.clearRect(0, 0, size, size);
+  pctx.drawImage(src, sx, sy, side, side, 0, 0, size, size);
+  return { sx, sy, side };
+}
+
+function softmax(logits) {
+  let mx = -Infinity;
+  for (const v of logits) if (v > mx) mx = v;
+  let sum = 0;
+  const e = new Array(logits.length);
+  for (let i = 0; i < logits.length; i++) { e[i] = Math.exp(logits[i] - mx); sum += e[i]; }
+  for (let i = 0; i < logits.length; i++) e[i] /= sum;
+  return e;
+}
+
+/* ── 4. Inference on whatever is currently drawn on the proc canvas ── */
+async function classifyDrawn() {
+  const size = SPEC.input_size, mean = SPEC.mean, std = SPEC.std;
+  const tensor = tensorFromCanvas(size, mean, std);
+  const feeds = {}; feeds[MODEL.inName] = tensor;
+  const t0 = performance.now();
+  const out = await session.run(feeds);
+  const ms = performance.now() - t0;
+  const raw = out[MODEL.outName].data;                     // the model returns raw LOGITS
+  const probs = softmax(Array.prototype.slice.call(raw, 0, SPEC.classes.length));
+  frameCount++;
+  renderResults(probs, ms);
+  return probs;
+}
+
+async function classifyVideoFrame() {
+  drawCentralSquare(video, video.videoWidth, video.videoHeight, SPEC.input_size);
+  return classifyDrawn();
+}
+
+async function classifyFile(file) {
+  const bmp = await createImageBitmap(file);
+  drawCentralSquare(bmp, bmp.width, bmp.height, SPEC.input_size);
+  showUploadPreview(bmp);
+  const probs = await classifyDrawn();
+  bmp.close && bmp.close();
+  return probs;
+}
+
+function showUploadPreview(bmp) {
+  stopCamera();
+  const c = document.createElement("canvas");
+  c.width = bmp.width; c.height = bmp.height;
+  c.getContext("2d").drawImage(bmp, 0, 0);
+  // the <video> element sits on top of the stage, so hide it or it covers the photo
+  video.style.display = "none";
+  stage.style.backgroundImage = 'url("' + c.toDataURL("image/jpeg", 0.9) + '")';
+  cropbox.style.display = "none";
+  $("placeholder").style.display = "none";
+}
+
+/* ── 5. Results rendering ─────────────────────────────────────────── */
+function renderResults(probs, ms) {
+  lastProbs = probs;
+  const order = SPEC.classes
+    .map((name, i) => ({ name, p: probs[i], i }))
+    .sort((a, b) => b.p - a.p);
+
+  const box = $("results");
+  if (box.childElementCount !== SPEC.classes.length) {
+    box.innerHTML = "";
+    for (let k = 0; k < SPEC.classes.length; k++) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = '<span class="cls"></span>' +
+                      '<span class="bar"><i></i></span>' +
+                      '<span class="num"><span class="pc"></span><small class="raw"></small></span>';
+      box.appendChild(row);
+    }
+  }
+  const top = order[0];
+  $("topName").textContent = top.name;
+  $("topPct").textContent = (top.p * 100).toFixed(1) + "%";
+
+  const rows = box.children;
+  for (let k = 0; k < order.length; k++) {
+    const o = order[k], row = rows[k];
+    row.classList.toggle("dim", k > 0 && o.p < 0.02);
+    row.querySelector(".cls").textContent = o.name;
+    row.querySelector(".bar i").style.width = (o.p * 100).toFixed(2) + "%";
+    row.querySelector(".pc").textContent = (o.p * 100).toFixed(1) + "%";
+    row.querySelector(".raw").textContent = o.p.toFixed(6);
+  }
+  $("meta").textContent =
+    SPEC.classes.length + " classes · input 1×3×" + SPEC.input_size + "×" + SPEC.input_size +
+    " · softmax over model output “" + MODEL.outName + "” · inference " + ms.toFixed(0) + " ms (" + EP_USED + ")";
+}
+
+/* ── 6. Camera ────────────────────────────────────────────────────── */
+function layoutCropBox() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return;
+  const box = video.getBoundingClientRect();
+  // object-fit: contain → scale to fit, centred
+  const sc = Math.min(box.width / vw, box.height / vh);
+  const dw = vw * sc, dh = vh * sc;
+  const side = Math.min(dw, dh);
+  cropbox.style.width = side + "px";
+  cropbox.style.height = side + "px";
+  cropbox.style.left = (box.left - stage.getBoundingClientRect().left + (dw - side) / 2) + "px";
+  cropbox.style.top  = (box.top  - stage.getBoundingClientRect().top  + (dh - side) / 2) + "px";
+}
+
+async function startCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setStatus("Camera API unavailable — this page needs HTTPS (or localhost) to use the camera.", "err");
+    return;
+  }
+  stopCamera();
+  setStatus("Requesting rear camera…");
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width:  { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    });
+  } catch (err) {
+    let m = "Camera blocked (" + (err && err.name || "error") + "). ";
+    if (location.protocol !== "https:" && location.hostname !== "localhost")
+      m += "The page must be served over HTTPS for camera access.";
+    else m += "Allow camera access for this site, or use Upload photo.";
+    setStatus(m, "err");
+    return;
+  }
+
+  video.srcObject = stream;
+  video.setAttribute("playsinline", "");
+  try { await video.play(); } catch (e) { /* autoplay policy; play() above is inside a gesture */ }
+
+  await new Promise(res => {
+    if (video.videoWidth) return res();
+    video.addEventListener("loadedmetadata", res, { once: true });
+    setTimeout(res, 3000);
+  });
+
+  stage.style.backgroundImage = "none";
+  video.style.display = "block";
+  $("placeholder").style.display = "none";
+  cropbox.style.display = "block";
+  layoutCropBox();
+  $("btnStart").disabled = true;
+  $("btnStop").disabled = false;
+  setStatus("Live — point at a leaf.", "ok");
+  loop();
+}
+
+function stopCamera() {
+  looping = false;
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  video.srcObject = null;
+  cropbox.style.display = "none";
+  $("btnStart").disabled = false;
+  $("btnStop").disabled = true;
+}
+
+async function loop() {
+  if (looping) return;
+  looping = true;
+  while (looping) {
+    if (session && !busy && video.readyState >= 2 && video.videoWidth) {
+      busy = true;
+      try { await classifyVideoFrame(); }
+      catch (e) { setStatus("Inference error: " + e.message, "err"); looping = false; break; }
+      finally { busy = false; }
+    }
+    await new Promise(r => setTimeout(r, 120));   // ~8 fps ceiling, keeps the UI responsive
+  }
+}
+
+/* ── 7. Boot ──────────────────────────────────────────────────────── */
+let MODEL = null, EP_USED = "wasm";
+
+async function boot() {
+  try {
+    SPEC = await loadSpec();
+    const io = await loadModel();
+    MODEL = io;
+    renderResults(SPEC.classes.map(() => 1 / SPEC.classes.length), 0);
+    setStatus("Model ready (" + SPEC.classes.length + " classes). Start the camera or upload a photo.", "ok");
+  } catch (e) {
+    console.error(e);
+    setStatus("Startup failed: " + (e && e.message || e), "err");
+  }
+}
+
+$("btnStart").addEventListener("click", startCamera);
+$("btnStop").addEventListener("click", () => { stopCamera(); setStatus("Camera stopped."); });
+$("file").addEventListener("change", async ev => {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  if (!session) { setStatus("Model still loading — try again in a second.", "err"); return; }
+  setStatus("Classifying " + f.name + "…");
+  try {
+    const p = await classifyFile(f);
+    const best = SPEC.classes[p.indexOf(Math.max(...p))];
+    setStatus("Done — " + best + " (" + (Math.max.apply(null, p) * 100).toFixed(1) + "%)", "ok");
+  } catch (e) {
+    console.error(e);
+    setStatus("Could not classify that file: " + e.message, "err");
+  } finally { ev.target.value = ""; }
+});
+window.addEventListener("resize", layoutCropBox);
+
+/* ══════════════════════════════════════════════════════════════════════
+   QR code — generated locally in this page (no external service).
+   Byte mode, ECC level M, versions 1–7, rendered as SVG.
+   ══════════════════════════════════════════════════════════════════════ */
+const QRGen = (function () {
+  // GF(256), primitive polynomial x^8+x^4+x^3+x^2+1 (0x11d)
+  const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+  for (let i = 0, x = 1; i < 255; i++) { EXP[i] = x; LOG[x] = i; x = (x << 1) ^ ((x >> 7) * 0x11d); }
+  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  const gmul = (a, b) => (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]];
+
+  function genPoly(deg) {
+    let g = [1];
+    for (let i = 0; i < deg; i++) {
+      const ng = new Array(g.length + 1).fill(0);
+      for (let j = 0; j < g.length; j++) { ng[j] ^= g[j]; ng[j + 1] ^= gmul(g[j], EXP[i]); }
+      g = ng;
+    }
+    return g;
+  }
+  function rsEncode(data, ecLen) {
+    const g = genPoly(ecLen), res = new Uint8Array(ecLen);
+    for (let n = 0; n < data.length; n++) {
+      const f = data[n] ^ res[0];
+      res.copyWithin(0, 1); res[ecLen - 1] = 0;
+      for (let j = 0; j < ecLen; j++) res[j] ^= gmul(f, g[j + 1]);
+    }
+    return res;
+  }
+
+  // level M: version -> [total codewords, EC codewords per block, number of blocks]
+  // (every entry below divides its data codewords evenly across its blocks)
+  const TBL = { 1:[26,10,1], 2:[44,16,1], 3:[70,26,1], 4:[100,18,2],
+                5:[134,24,2], 6:[172,16,4], 7:[196,18,4] };
+  const ALIGN = { 1:[], 2:[6,18], 3:[6,22], 4:[6,26], 5:[6,30], 6:[6,34], 7:[6,22,38] };
+  const ECC_FORMAT_BITS = 0;  // level M indicator is 0b00
+
+  function pickVersion(byteLen) {
+    const need = 4 + 8 + 8 * byteLen;           // mode + 8-bit count + payload
+    for (let v = 1; v <= 7; v++) {
+      const [tot, ecpb, nb] = TBL[v];
+      if ((tot - ecpb * nb) * 8 >= need) return v;
+    }
+    throw new Error("QR: payload too long for versions 1-7");
+  }
+
+  function makeCodewords(bytes) {
+    const ver = pickVersion(bytes.length);
+    const [tot, ecpb, nb] = TBL[ver];
+    const dataTotal = tot - ecpb * nb, perBlock = dataTotal / nb;
+    const bits = [];
+    const push = (val, n) => { for (let i = n - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+    push(0b0100, 4);                            // byte mode
+    push(bytes.length, 8);                      // character count (8 bits, versions 1-9)
+    for (const b of bytes) push(b, 8);
+    for (let i = 0; i < 4 && bits.length < dataTotal * 8; i++) bits.push(0);   // terminator
+    while (bits.length % 8) bits.push(0);
+    const filled = bits.length / 8;
+    const data = new Uint8Array(dataTotal);
+    for (let i = 0; i < filled; i++) {
+      let v = 0; for (let k = 0; k < 8; k++) v = (v << 1) | bits[i * 8 + k];
+      data[i] = v;
+    }
+    for (let i = filled, pad = 0xEC; i < dataTotal; i++, pad ^= 0xEC ^ 0x11) data[i] = pad;
+    // split into blocks, compute EC, then interleave
+    const dBlocks = [], eBlocks = [];
+    for (let b = 0; b < nb; b++) {
+      const slice = data.subarray(b * perBlock, (b + 1) * perBlock);
+      dBlocks.push(slice); eBlocks.push(rsEncode(slice, ecpb));
+    }
+    const out = new Uint8Array(tot);
+    let k = 0;
+    for (let i = 0; i < perBlock; i++) for (let b = 0; b < nb; b++) out[k++] = dBlocks[b][i];
+    for (let i = 0; i < ecpb; i++) for (let b = 0; b < nb; b++) out[k++] = eBlocks[b][i];
+    return { version: ver, codewords: out };
+  }
+
+  function buildMatrix(version, codewords, mask) {
+    const size = 17 + 4 * version;
+    const mod = Array.from({ length: size }, () => new Array(size).fill(false));
+    const fn  = Array.from({ length: size }, () => new Array(size).fill(false));
+    const set = (x, y, v) => { mod[y][x] = v; fn[y][x] = true; };
+    const getBit = (v, i) => ((v >>> i) & 1) !== 0;
+
+    // timing patterns
+    for (let i = 0; i < size; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+    // finder patterns + separators
+    const finder = (cx, cy) => {
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+        const d = Math.max(Math.abs(dx), Math.abs(dy)), xx = cx + dx, yy = cy + dy;
+        if (xx >= 0 && xx < size && yy >= 0 && yy < size) set(xx, yy, d !== 2 && d !== 4);
+      }
+    };
+    finder(3, 3); finder(size - 4, 3); finder(3, size - 4);
+    // alignment patterns
+    const ap = ALIGN[version];
+    for (let i = 0; i < ap.length; i++) for (let j = 0; j < ap.length; j++) {
+      if ((i === 0 && j === 0) || (i === 0 && j === ap.length - 1) || (i === ap.length - 1 && j === 0)) continue;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++)
+        set(ap[j] + dx, ap[i] + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+    }
+    // reserve format area + version area
+    for (let i = 0; i < 9; i++) { set(8, i, false); set(i, 8, false); }
+    for (let i = 0; i < 8; i++) { set(size - 1 - i, 8, false); set(8, size - 1 - i, false); }
+    if (version >= 7) for (let i = 0; i < 18; i++) {
+      const a = size - 11 + i % 3, c = (i / 3) | 0;
+      set(a, c, false); set(c, a, false);
+    }
+
+    // format bits (BCH 15,5 over ECC-level + mask, masked with 0x5412)
+    const fdata = (ECC_FORMAT_BITS << 3) | mask;
+    let rem = fdata;
+    for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >> 9) * 0x537);
+    const fbits = ((fdata << 10) | rem) ^ 0x5412;
+    for (let i = 0; i <= 5; i++) set(8, i, getBit(fbits, i));
+    set(8, 7, getBit(fbits, 6)); set(8, 8, getBit(fbits, 7)); set(7, 8, getBit(fbits, 8));
+    for (let i = 9; i < 15; i++) set(14 - i, 8, getBit(fbits, i));
+    for (let i = 0; i < 8; i++) set(size - 1 - i, 8, getBit(fbits, i));
+    for (let i = 8; i < 15; i++) set(8, size - 15 + i, getBit(fbits, i));
+    set(8, size - 8, true);                                   // always-dark module
+
+    // version info (BCH 18,6), versions >= 7
+    if (version >= 7) {
+      let r = version;
+      for (let i = 0; i < 12; i++) r = (r << 1) ^ ((r >> 11) * 0x1F25);
+      const vbits = (version << 12) | r;
+      for (let i = 0; i < 18; i++) {
+        const a = size - 11 + i % 3, c = (i / 3) | 0, b = getBit(vbits, i);
+        set(a, c, b); set(c, a, b);
+      }
+    }
+
+    // data placement: two-module columns, right to left, alternating direction
+    let bit = 0;
+    for (let right = size - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;
+      for (let vert = 0; vert < size; vert++) {
+        for (let j = 0; j < 2; j++) {
+          const x = right - j;
+          const upward = ((right + 1) & 2) === 0;
+          const y = upward ? size - 1 - vert : vert;
+          if (!fn[y][x] && bit < codewords.length * 8) {
+            mod[y][x] = getBit(codewords[bit >> 3], 7 - (bit & 7));
+            bit++;
+          }
+        }
+      }
+    }
+
+    // mask
+    const maskFn = [
+      (x, y) => (x + y) % 2 === 0,
+      (x, y) => y % 2 === 0,
+      (x, y) => x % 3 === 0,
+      (x, y) => (x + y) % 3 === 0,
+      (x, y) => ((x / 3 | 0) + (y / 2 | 0)) % 2 === 0,
+      (x, y) => (x * y) % 2 + (x * y) % 3 === 0,
+      (x, y) => (((x * y) % 2 + (x * y) % 3) % 2) === 0,
+      (x, y) => ((((x + y) % 2) + (x * y) % 3) % 2) === 0
+    ][mask];
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++)
+      if (!fn[y][x] && maskFn(x, y)) mod[y][x] = !mod[y][x];
+
+    return { size, mod };
+  }
+
+  // 1:1:3:1:1 finder-like signature, plus 4 light modules on one side
+  const SIG = [false, false, false, false, true, false, true, true, true, false, true];
+  const SIG_REV = SIG.slice().reverse();
+
+  function penalty(size, mod) {
+    let p = 0;
+    const line = (get) => {
+      for (let i = 0; i < size; i++) {
+        // rule 1 — runs of five or more identical modules
+        let run = 1, prev = get(i, 0);
+        for (let j = 1; j < size; j++) {
+          const c = get(i, j);
+          if (c === prev) { run++; if (run === 5) p += 3; else if (run > 5) p++; }
+          else { prev = c; run = 1; }
+        }
+        // rule 3 — the 11-module signature (either orientation) anywhere in the line
+        for (let j = 0; j + 11 <= size; j++) {
+          let a = true, b = true;
+          for (let k = 0; k < 11; k++) {
+            const c = get(i, j + k);
+            if (c !== SIG[k]) a = false;
+            if (c !== SIG_REV[k]) b = false;
+          }
+          if (a) p += 40;
+          if (b) p += 40;
+        }
+      }
+    };
+    line((i, j) => mod[i][j]);   // rows
+    line((i, j) => mod[j][i]);   // columns
+
+    // rule 2 — 2x2 blocks of one colour
+    for (let y = 0; y < size - 1; y++) for (let x = 0; x < size - 1; x++) {
+      const c = mod[y][x];
+      if (c === mod[y][x + 1] && c === mod[y + 1][x] && c === mod[y + 1][x + 1]) p += 3;
+    }
+    // rule 4 — deviation from a 50% dark/light balance
+    let dark = 0;
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (mod[y][x]) dark++;
+    p += Math.floor(Math.abs(dark * 100 / (size * size) - 50) / 5) * 10;
+    return p;
+  }
+
+  const utf8 = str => Array.from(new TextEncoder().encode(str));
+
+  function matrix(text) {
+    const { version, codewords } = makeCodewords(utf8(text));
+    let best = null;
+    for (let m = 0; m < 8; m++) {
+      const cand = buildMatrix(version, codewords, m);
+      const sc = penalty(cand.size, cand.mod);
+      if (!best || sc < best.score)
+        best = { score: sc, size: cand.size, mod: cand.mod, mask: m, version: version };
+    }
+    return best;
+  }
+
+  // Rendered size is an exact integer multiple of the module count, so every module
+  // lands on a whole number of device pixels (a fractional scale makes crispEdges
+  // render ragged module widths, which hurts scanner reliability).
+  function toSVG(text, targetPx) {
+    const q = matrix(text), n = q.size, quiet = 4, total = n + quiet * 2;
+    const scale = Math.max(3, Math.round((targetPx || 168) / total));
+    const px = total * scale;
+    let d = "";
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
+      if (q.mod[y][x]) d += "M" + (x + quiet) + " " + (y + quiet) + "h1v1h-1z";
+    return {
+      mask: q.mask, version: q.version, modules: n, total: total, scale: scale, px: px,
+      matrix: q.mod,
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + total + ' ' + total +
+           '" width="' + px + '" height="' + px + '" shape-rendering="crispEdges">' +
+           '<rect width="' + total + '" height="' + total + '" fill="#fff"/>' +
+           '<path d="' + d + '" fill="#000"/></svg>'
+    };
+  }
+
+  return { matrix, toSVG, makeCodewords, buildMatrix, rsEncode, _gf: { EXP, LOG } };
+})();
+
+/* Render the QR code for the GitHub Pages URL. */
+let QR_INFO = null;
+(function renderQR() {
+  try {
+    const q = QRGen.toSVG(PAGES_URL, 200);   // -> 41 modules x 5 px = 205 px
+    QR_INFO = { url: PAGES_URL, version: q.version, modules: q.modules, total: q.total,
+                scale: q.scale, px: q.px, mask: q.mask, dark: q.matrix };
+    $("qrcode").innerHTML = q.svg;
+    $("qrcode").setAttribute("aria-label", "QR code for " + PAGES_URL);
+  } catch (e) {
+    $("qrcode").textContent = "QR generation failed: " + e.message;
+  }
+})();
+
+/* ── Diagnostics hooks used by the local automated verification.
+      Harmless read-only helpers; nothing here runs automatically. ───── */
+window.__diag = {
+  url: PAGES_URL,
+  qr: () => QR_INFO,
+  qrSVG: () => $("qrcode").innerHTML,
+  spec: () => SPEC,
+  ready: () => !!(session && MODEL),
+  ep: () => EP_USED,
+  frames: () => frameCount,
+  lastProbs: () => lastProbs,
+  // the exact 96x96 pixels that were last fed to the model
+  procPNG: () => proc.toDataURL("image/png"),
+  classifyFile: f => classifyFile(f),
+  classifyUrl: async u => {
+    const b = await (await fetch(u)).blob();
+    return classifyFile(new File([b], "test.jpg", { type: "image/jpeg" }));
+  },
+  // rasterise the exact QR matrix that is shown in the page, with a 4-module quiet zone
+  qrPNG: (scale) => {
+    if (!QR_INFO) return null;
+    const m = QR_INFO.dark, n = m.length, quiet = 4, tot = n + quiet * 2;
+    const c = document.createElement("canvas");
+    c.width = c.height = tot * scale;
+    const g = c.getContext("2d");
+    g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+    g.fillStyle = "#000";
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
+      if (m[y][x]) g.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
+    return c.toDataURL("image/png");
+  }
+};
+
+boot();
+</script>
+</body>
+</html>
